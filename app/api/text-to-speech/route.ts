@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(request: NextRequest) {
     try {
-        const { text } = await request.json()
+        const { text, voiceId } = await request.json()
 
-        if (!text) {
-            return NextResponse.json({ error: 'Text is required' }, { status: 400 })
+        if (!text || !voiceId) {
+            return NextResponse.json({ error: 'Text and voiceId are required' }, { status: 400 })
         }
 
-        const voiceId = process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB' // Default voice (Adam)
 
         console.log('Using voice ID:', voiceId)
         console.log('Text to synthesize:', text.substring(0, 100) + '...')

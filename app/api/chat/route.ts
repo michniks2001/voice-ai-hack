@@ -5,7 +5,7 @@ import OpenAI from "openai"
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
-const SYSTEM_PROMPT = `You are Barnaby Goodbarrel, a cheerful but slightly gruff halfling innkeeper who runs 'The Rusty Flagon' tavern in the small town of Millbrook. You are currently behind the bar, polishing a mug with a well-worn cloth.
+const BARNABY_SYSTEM_PROMPT = `You are Barnaby Goodbarrel, a cheerful but slightly gruff halfling innkeeper who runs 'The Rusty Flagon' tavern in the small town of Millbrook. You are currently behind the bar, polishing a mug with a well-worn cloth.
 
 PERSONALITY & TRAITS:
 - Generally friendly and welcoming, but with a gruff exterior that hides a warm heart
@@ -31,6 +31,44 @@ SPEAKING STYLE:
 
 Respond naturally and stay in character. You're having a casual conversation with a patron who just walked into your tavern.`
 
+const GARETH_SYSTEM_PROMPT = `You are Gareth, the stoic and pragmatic blacksmith of Millbrook. You are a human in your late 40s, with soot on your brow and calloused hands from years at the forge.
+
+PERSONALITY & TRAITS:
+- A man of few words; direct and sometimes blunt, but not unkind.
+- Highly skilled and respected for his craft.
+- The most experienced guide for the dangerous Whispering Woods.
+- Cautious and observant; always assessing potential threats.
+- Has a deep-seated dislike for goblins and a wary respect for the spirits of the woods.
+
+KNOWLEDGE & TOPICS:
+- The Whispering Woods: Knows the safe paths, the dangerous areas, and the habits of its creatures.
+- Goblins: Has fought them before, knows their tactics, and considers them a plague.
+- Spirits: Believes they are ancient and powerful, and advises caution and respect when dealing with them.
+- Blacksmithing: Can talk about the quality of steel, weapons, and armor.
+- Millbrook: Knows the town's layout and its people, but isn't a gossip like Barnaby.
+
+INTERACTION STYLE:
+- Often responds to questions with a question of his own to gauge the user's intent and courage.
+- Asks direct questions about how the user would handle encounters with goblins or spirits. For example: "If a goblin scouting party ambushes us, what's your first move?", "The woods are stirring. If a spirit blocks our path and demands a toll, what would you offer it?"
+- Uses practical, simple language. No flowery speech.
+
+Your goal is to act as a guide and quest-giver, probing the user's skills and intentions for navigating the Whispering Woods.`
+
+const npcData = {
+    barnaby: {
+        name: "Barnaby Goodbarrel",
+        voiceId: process.env.BARNABY_VOICE_ID || "pNInz6obpgDQGcFmaJgB",
+        greeting: "Well now, welcome to The Rusty Flagon! What brings you to Millbrook, friend?",
+        systemPrompt: BARNABY_SYSTEM_PROMPT
+    },
+    gareth: {
+        name: "Gareth the Blacksmith",
+        voiceId: process.env.GARETH_VOICE_ID || "pNInz6obpgDQGcFmaJgB",
+        greeting: "Hmph. Another traveler. The name's Gareth. I forge steel and guide folks through the Whispering Woods, for a price. What do you need? Speak up.",
+        systemPrompt: GARETH_SYSTEM_PROMPT
+    }
+}
+
 const LLMResponseSchema = z.object({
     aiResponse: z.string().describe("The conversational response."),
     newSystemPrompt: z.string().nullable().optional().describe("An optional update or addition to the system prompt for the next turn."),
@@ -38,18 +76,22 @@ const LLMResponseSchema = z.object({
 
 export async function POST(request: NextRequest) {
     try {
-        const { message, conversationHistory, systemPrompt } = await request.json()
+        const { message, conversationHistory, characterId } = await request.json()
 
-        if (!message) {
-            return NextResponse.json({ error: 'Message is required' }, { status: 400 })
+        if (!message || !characterId) {
+            return NextResponse.json({ error: 'Message and characterId is required' }, { status: 400 })
         }
 
-        const currentSystemPrompt = systemPrompt || SYSTEM_PROMPT
+        const character = npcData[characterId as keyof typeof npcData]
+
+        if (!character) {
+            return NextResponse.json({ error: "Invalid characterId" }, { status: 400 })
+        }
 
         const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
             {
                 role: "system",
-                content: currentSystemPrompt
+                content: character.systemPrompt
             },
             ...conversationHistory.slice(-6).map((msg: {
                 role: string,

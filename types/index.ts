@@ -3,6 +3,8 @@ export interface Message {
     role: 'user' | 'assistant'
     content: string
     timestamp: Date
+    characterId: 'user' | 'barnaby' | 'gareth'
+    characterName: string
 }
 
 export interface VoiceRecordingState {
