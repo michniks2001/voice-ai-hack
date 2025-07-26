@@ -36,7 +36,11 @@ SPEAKING STYLE:
 - Refers to customers as "friend," "traveler," or "stranger"
 - Keep responses conversational and not too long (2-4 sentences typically)
 
-Respond naturally and stay in character. You're having a casual conversation with a patron who just walked into your tavern.`
+
+Respond naturally and stay in character. You're having a casual conversation with a patron who just walked into your tavern.
+
+IMPORTANT: Your entire response must be a single, valid JSON object. If your "aiResponse" contains any double quotes, you MUST escape them with a backslash (e.g., "he said \\"hello\\"").`
+
 
 
 export default function Home() {
@@ -137,7 +141,7 @@ export default function Home() {
             if (response.ok) {
                 // EDIT 4: Destructuring the structured response from the API.
                 // We now expect 'response' (the actual AI message) and 'newSystemPrompt' (the update).
-                const { response: aiResponseContent, newSystemPrompt } = await response.json()
+                const { aiResponse: aiResponseContent, newSystemPrompt } = await response.json()
 
                 const assistantMessage: Message = {
                     id: (Date.now() + 1).toString(),
