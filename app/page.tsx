@@ -10,222 +10,220 @@ import { LoadingIndicator } from '@/components/LoadingIndicator'
 import { Message } from '@/types'
 import { Volume2 } from 'lucide-react'
 
-// EDIT 1: Renamed SYSTEM_PROMPT to INITIAL_SYSTEM_PROMPT for clarity.
-// This constant holds the initial state of the system prompt.
-const INITIAL_SYSTEM_PROMPT = `You are Barnaby Goodbarrel, a cheerful but slightly gruff halfling innkeeper who runs 'The Rusty Flagon' tavern in the small town of Millbrook. You are currently behind the bar, polishing a mug with a well-worn cloth.
-
-PERSONALITY & TRAITS:
-- Generally friendly and welcoming, but with a gruff exterior that hides a warm heart
-- A bit gossipy and loves sharing local rumors and news
-- Concerned about the safety of travelers on the roads outside town
-- Has a slight rural accent and uses colloquial expressions
-- Proud of your establishment and the quality of your ale and mutton stew
-- Sometimes makes observations about the weather or the state of business
-- Has been running the tavern for over 20 years
-
-KNOWLEDGE & TOPICS:
-- Local rumors: strange lights in the Whispering Woods, merchant caravans arriving late
-- The roads: mentions of increased goblin activity on the north road
-- Your tavern: serves excellent ale, hearty mutton stew, has rooms upstairs for travelers
-- The town: small farming community, mostly peaceful, has a blacksmith named Gareth
-- Simple quest hooks: missing merchant's daughter, haunted mill, or strange noises from the old watchtower
-
-SPEAKING STYLE:
-- Uses phrases like "Well now," "Right then," "Aye," and "Mind you"
-- Sometimes drops 'g' from words ending in '-ing' (workin', thinkin', etc.)
-- Refers to customers as "friend," "traveler," or "stranger"
-- Keep responses conversational and not too long (2-4 sentences typically)
-
-
-Respond naturally and stay in character. You're having a casual conversation with a patron who just walked into your tavern.
-
-IMPORTANT: Your entire response must be a single, valid JSON object. If your "aiResponse" contains any double quotes, you MUST escape them with a backslash (e.g., "he said \\"hello\\"").`
-
-
+// --- NEW: NPC data defined on the frontend ---
+// This object holds the client-side information for each character.
+const npcData = {
+    barnaby: {
+        name: "Barnaby Goodbarrel",
+        voiceId: process.env.NEXT_PUBLIC_BARNABY_VOICE_ID || 'pNInz6obpgDQGcFmaJgB',
+        greeting: "Well now, welcome to The Rusty Flagon! What brings you to Millbrook, friend?",
+        description: "Barnaby is a friendly halfling who has been running The Rusty Flagon for over 20 years. He's known for his excellent ale, hearty mutton stew, and knowledge of local happenings."
+    },
+    gareth: {
+        name: "Gareth the Blacksmith",
+        // IMPORTANT: Replace this with the actual ElevenLabs Voice ID for Gareth
+        voiceId: process.env.NEXT_PUBLIC_GARETH_VOICE_ID || "pNInz6obpgDQGcFmaJgB",
+        greeting: "Hmph. Another traveler. The name's Gareth. I forge steel and guide folks through the Whispering Woods, for a price. What do you need? Speak up.",
+        description: "Gareth is the stoic and pragmatic blacksmith of Millbrook. He is the most experienced guide for the dangerous Whispering Woods and is wary of its goblins and spirits."
+    }
+};
 
 export default function Home() {
     const [messages, setMessages] = useState<Message[]>([])
     const [isThinking, setIsThinking] = useState(false)
     const [isSpeaking, setIsSpeaking] = useState(false)
     const [isInitialized, setIsInitialized] = useState(false)
-    // EDIT 2: Initialized currentSystemPrompt with INITIAL_SYSTEM_PROMPT.
-    // This state variable will now hold the mutable system prompt.
-    const [currentSystemPrompt, setCurrentSystemPrompt] = useState<string>(INITIAL_SYSTEM_PROMPT)
+
+    // --- NEW: State to manage the active character ---
+    const [activeCharacterId, setActiveCharacterId] = useState<'barnaby' | 'gareth'>('barnaby')
+
     const scrollAreaRef = useRef<HTMLDivElement>(null)
     const audioRef = useRef<HTMLAudioElement>(null)
 
-    // Initialize with the welcome message only on the client side
+    // --- MODIFIED: useEffect to initialize and reset chat for the active character ---
     useEffect(() => {
+        // This effect runs when the component first loads and whenever activeCharacterId changes.
+        const character = npcData[activeCharacterId];
+        const welcomeMessage: Message = {
+            id: '1',
+            role: 'assistant',
+            content: character.greeting,
+            timestamp: new Date(),
+            characterId: activeCharacterId,
+            characterName: character.name,
+        };
+        setMessages([welcomeMessage]);
+
         if (!isInitialized) {
-            const welcomeMessage: Message = {
-                id: '1',
-                role: 'assistant',
-                content: "Well now, welcome to The Rusty Flagon! I'm Barnaby, and this here's my tavern. Just polishin' up some mugs, I was. What brings you to Millbrook, friend? Looking for a room, or perhaps some of my famous mutton stew?",
-                timestamp: new Date(),
-            }
-            setMessages([welcomeMessage])
-            setIsInitialized(true)
+            setIsInitialized(true);
         }
-    }, [isInitialized])
+    }, [activeCharacterId]); // Reruns when the character is switched
 
     useEffect(() => {
         // Auto-scroll to bottom when new messages are added
         if (scrollAreaRef.current) {
-            const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]')
+            const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
             if (scrollContainer) {
-                scrollContainer.scrollTop = scrollContainer.scrollHeight
+                scrollContainer.scrollTop = scrollContainer.scrollHeight;
             }
         }
-    }, [messages, isThinking])
+    }, [messages, isThinking]);
 
-    const playAudio = async (text: string) => {
-        setIsSpeaking(true)
+    // --- MODIFIED: playAudio now accepts a voiceId ---
+    const playAudio = async (text: string, voiceId: string) => {
+        setIsSpeaking(true);
         try {
             const response = await fetch('/api/text-to-speech', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ text }),
-            })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, voiceId }), // Pass the specific voiceId
+            });
 
             if (response.ok) {
-                const audioBlob = await response.blob()
-                const audioUrl = URL.createObjectURL(audioBlob)
+                const audioBlob = await response.blob();
+                const audioUrl = URL.createObjectURL(audioBlob);
 
                 if (audioRef.current) {
-                    audioRef.current.src = audioUrl
+                    audioRef.current.src = audioUrl;
                     audioRef.current.onended = () => {
-                        setIsSpeaking(false)
-                        URL.revokeObjectURL(audioUrl)
-                    }
-                    await audioRef.current.play()
+                        setIsSpeaking(false);
+                        URL.revokeObjectURL(audioUrl);
+                    };
+                    await audioRef.current.play();
                 }
+            } else {
+                throw new Error('Failed to fetch audio');
             }
         } catch (error) {
-            console.error('Error playing audio:', error)
-            setIsSpeaking(false)
+            console.error('Error playing audio:', error);
+            setIsSpeaking(false);
         }
-    }
+    };
 
+    // --- MODIFIED: handleTranscription sends characterId and handles character-specific data ---
     const handleTranscription = async (text: string) => {
-        if (!text.trim()) return
+        if (!text.trim()) return;
 
-        // Add user message
         const userMessage: Message = {
             id: Date.now().toString(),
             role: 'user',
             content: text,
             timestamp: new Date(),
-        }
-        setMessages(prev => [...prev, userMessage])
-        setIsThinking(true)
+            characterId: 'user',
+            characterName: 'You',
+        };
+        setMessages(prev => [...prev, userMessage]);
+        setIsThinking(true);
 
         try {
-            // Send to chat API, including the currentSystemPrompt
             const response = await fetch('/api/chat', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: text,
                     conversationHistory: [...messages, userMessage].map(m => ({
                         role: m.role,
                         content: m.content
                     })),
-                    systemPrompt: currentSystemPrompt // EDIT 3: Sending the dynamic currentSystemPrompt to the API.
+                    characterId: activeCharacterId, // Send the active character ID to the backend
                 }),
-            })
+            });
 
             if (response.ok) {
-                // EDIT 4: Destructuring the structured response from the API.
-                // We now expect 'response' (the actual AI message) and 'newSystemPrompt' (the update).
-                const { aiResponse: aiResponseContent, newSystemPrompt } = await response.json()
+                const { aiResponse } = await response.json(); // Simpler destructuring
+                const character = npcData[activeCharacterId];
 
                 const assistantMessage: Message = {
                     id: (Date.now() + 1).toString(),
                     role: 'assistant',
-                    // EDIT 5: Using aiResponseContent for the message content.
-                    content: aiResponseContent,
+                    content: aiResponse,
                     timestamp: new Date(),
-                }
+                    characterId: activeCharacterId,
+                    characterName: character.name,
+                };
+                setMessages(prev => [...prev, assistantMessage]);
 
-                setMessages(prev => [...prev, assistantMessage])
-
-                // EDIT 6: Conditionally updating the system prompt.
-                // If the API returns a newSystemPrompt, update the state.
-                if (newSystemPrompt) {
-                    // This appends the new prompt fragment. You might adjust this logic
-                    // based on how you want the system prompt to evolve (e.g., replace, insert).
-                    setCurrentSystemPrompt(prevPrompt => `${prevPrompt}\n\n${newSystemPrompt}`)
-                }
-
-                // EDIT 7: Using aiResponseContent for audio playback.
-                await playAudio(aiResponseContent)
+                // Play audio with the correct character's voice
+                await playAudio(aiResponse, character.voiceId);
             } else {
-                throw new Error('Failed to get response')
+                throw new Error('Failed to get response from chat API');
             }
         } catch (error) {
-            console.error('Error sending message:', error)
+            console.error('Error sending message:', error);
             const errorMessage: Message = {
                 id: (Date.now() + 1).toString(),
                 role: 'assistant',
-                content: "Ah, sorry friend, seems I'm havin' trouble hearin' ya properly. Mind tryin' again?",
+                content: "Ah, sorry friend, seems my mind's a bit fuzzy right now. Try me again in a moment.",
                 timestamp: new Date(),
-            }
-            setMessages(prev => [...prev, errorMessage])
+                characterId: activeCharacterId,
+                characterName: npcData[activeCharacterId].name,
+            };
+            setMessages(prev => [...prev, errorMessage]);
         } finally {
-            setIsThinking(false)
+            setIsThinking(false);
         }
-    }
+    };
 
+    // --- MODIFIED: replayLastMessage gets voiceId from the message's character data ---
     const replayLastMessage = () => {
-        const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant')
+        const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant');
         if (lastAssistantMessage && !isSpeaking) {
-            playAudio(lastAssistantMessage.content)
+            const character = npcData[lastAssistantMessage.characterId as keyof typeof npcData];
+            if (character) {
+                playAudio(lastAssistantMessage.content, character.voiceId);
+            }
         }
-    }
+    };
 
-    // Show loading state while initializing to prevent hydration mismatch
+    // --- NEW: Function to handle switching characters ---
+    const handleCharacterSelect = (characterId: 'barnaby' | 'gareth') => {
+        if (characterId !== activeCharacterId) {
+            setActiveCharacterId(characterId);
+        }
+    };
+
     if (!isInitialized) {
         return (
-            <main className="min-h-screen bg-gradient-to-b from-amber-50 to-amber-100 p-4">
-                <div className="max-w-4xl mx-auto">
-                    <div className="text-center mb-6">
-                        <h1 className="text-4xl font-bold text-amber-900 mb-2">
-                            The Rusty Flagon Tavern
-                        </h1>
-                        <p className="text-amber-700">
-                            Loading...
-                        </p>
-                    </div>
-                </div>
+            <main className="min-h-screen bg-gradient-to-b from-amber-50 to-amber-100 flex items-center justify-center">
+                <LoadingIndicator message="Warming up the tavern..." />
             </main>
         )
     }
 
+    const activeCharacter = npcData[activeCharacterId];
+
     return (
         <main className="min-h-screen bg-gradient-to-b from-amber-50 to-amber-100 p-4">
             <div className="max-w-4xl mx-auto">
-                {/* Header */}
                 <div className="text-center mb-6">
-                    <h1 className="text-4xl font-bold text-amber-900 mb-2">
-                        The Rusty Flagon Tavern
-                    </h1>
-                    <p className="text-amber-700">
-                        Chat with Barnaby the Halfling Innkeeper
-                    </p>
+                    <h1 className="text-4xl font-bold text-amber-900 mb-2">The Mystery of the Whispering Woods</h1>
+                    <p className="text-amber-700">A Voice in the Village of Millbrook</p>
                 </div>
 
-                {/* Main Chat Interface */}
+                {/* --- NEW: Character Selection UI --- */}
+                <div className="flex justify-center gap-4 mb-6">
+                    <Button
+                        onClick={() => handleCharacterSelect('barnaby')}
+                        variant={activeCharacterId === 'barnaby' ? 'default' : 'outline'}
+                    >
+                        Talk to Barnaby (Innkeeper)
+                    </Button>
+                    <Button
+                        onClick={() => handleCharacterSelect('gareth')}
+                        variant={activeCharacterId === 'gareth' ? 'default' : 'outline'}
+                    >
+                        Talk to Gareth (Blacksmith)
+                    </Button>
+                </div>
+
                 <Card className="mb-6">
                     <CardHeader>
+                        {/* --- MODIFIED: Dynamic Title --- */}
                         <CardTitle className="flex items-center justify-between">
-                            <span>Conversation with Barnaby</span>
+                            <span>Conversation with {activeCharacter.name}</span>
                             <Button
                                 onClick={replayLastMessage}
-                                disabled={isSpeaking || messages.length === 0}
+                                disabled={isSpeaking || messages.length <= 1}
                                 variant="outline"
                                 size="sm"
                             >
@@ -234,24 +232,20 @@ export default function Home() {
                             </Button>
                         </CardTitle>
                         <CardDescription>
-                            Use the microphone button below to speak with Barnaby. He'll respond both in text and voice.
+                            Use the microphone button below to speak with {activeCharacter.name}.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {/* Chat Messages */}
                         <ScrollArea className="h-96 w-full pr-4" ref={scrollAreaRef}>
                             <div className="space-y-4">
                                 {messages.map((message) => (
                                     <ChatMessage key={message.id} message={message} />
                                 ))}
-
                                 {isThinking && (
-                                    <LoadingIndicator message="Barnaby is thinking..." />
+                                    <LoadingIndicator message={`${activeCharacter.name} is thinking...`} />
                                 )}
                             </div>
                         </ScrollArea>
-
-                        {/* Voice Input */}
                         <div className="mt-6 pt-4 border-t">
                             <VoiceInput
                                 onTranscription={handleTranscription}
@@ -261,37 +255,20 @@ export default function Home() {
                     </CardContent>
                 </Card>
 
-                {/* Information Panel */}
                 <Card>
                     <CardHeader>
-                        <CardTitle>About Barnaby & The Rusty Flagon</CardTitle>
+                        {/* --- MODIFIED: Dynamic Info Panel --- */}
+                        <CardTitle>About {activeCharacter.name}</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="grid md:grid-cols-2 gap-4 text-sm">
-                            <div>
-                                <h4 className="font-semibold text-amber-800 mb-2">The Innkeeper</h4>
-                                <p className="text-amber-700">
-                                    Barnaby Goodbarrel is a friendly halfling who has been running The Rusty Flagon
-                                    for over 20 years. He's known for his excellent ale, hearty mutton stew, and
-                                    knowledge of local happenings.
-                                </p>
-                            </div>
-                            <div>
-                                <h4 className="font-semibold text-amber-800 mb-2">The Tavern</h4>
-                                <p className="text-amber-700">
-                                    Located in the peaceful farming town of Millbrook, The Rusty Flagon serves
-                                    as a gathering place for locals and a safe haven for weary travelers.
-                                    Ask Barnaby about local rumors, the roads, or current events.
-                                </p>
-                            </div>
-                        </div>
+                        <p className="text-sm text-amber-700">
+                            {activeCharacter.description}
+                        </p>
                     </CardContent>
                 </Card>
 
-                {/* Audio element for playing TTS */}
                 <audio ref={audioRef} style={{ display: 'none' }} />
             </div>
         </main>
-    )
-
+    );
 }

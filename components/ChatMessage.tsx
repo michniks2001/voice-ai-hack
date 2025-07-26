@@ -23,7 +23,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
                 <CardContent className="p-3">
                     <div className="flex items-start space-x-2">
                         <div className="text-sm font-medium mb-1">
-                            {isUser ? "You" : "Barnaby"}
+                            {message.characterName}
                         </div>
                     </div>
                     <p className="text-sm leading-relaxed">{message.content}</p>
