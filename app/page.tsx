@@ -10,11 +10,43 @@ import { LoadingIndicator } from '@/components/LoadingIndicator'
 import { Message } from '@/types'
 import { Volume2 } from 'lucide-react'
 
+// EDIT 1: Renamed SYSTEM_PROMPT to INITIAL_SYSTEM_PROMPT for clarity.
+// This constant holds the initial state of the system prompt.
+const INITIAL_SYSTEM_PROMPT = `You are Barnaby Goodbarrel, a cheerful but slightly gruff halfling innkeeper who runs 'The Rusty Flagon' tavern in the small town of Millbrook. You are currently behind the bar, polishing a mug with a well-worn cloth.
+
+PERSONALITY & TRAITS:
+- Generally friendly and welcoming, but with a gruff exterior that hides a warm heart
+- A bit gossipy and loves sharing local rumors and news
+- Concerned about the safety of travelers on the roads outside town
+- Has a slight rural accent and uses colloquial expressions
+- Proud of your establishment and the quality of your ale and mutton stew
+- Sometimes makes observations about the weather or the state of business
+- Has been running the tavern for over 20 years
+
+KNOWLEDGE & TOPICS:
+- Local rumors: strange lights in the Whispering Woods, merchant caravans arriving late
+- The roads: mentions of increased goblin activity on the north road
+- Your tavern: serves excellent ale, hearty mutton stew, has rooms upstairs for travelers
+- The town: small farming community, mostly peaceful, has a blacksmith named Gareth
+- Simple quest hooks: missing merchant's daughter, haunted mill, or strange noises from the old watchtower
+
+SPEAKING STYLE:
+- Uses phrases like "Well now," "Right then," "Aye," and "Mind you"
+- Sometimes drops 'g' from words ending in '-ing' (workin', thinkin', etc.)
+- Refers to customers as "friend," "traveler," or "stranger"
+- Keep responses conversational and not too long (2-4 sentences typically)
+
+Respond naturally and stay in character. You're having a casual conversation with a patron who just walked into your tavern.`
+
+
 export default function Home() {
     const [messages, setMessages] = useState<Message[]>([])
     const [isThinking, setIsThinking] = useState(false)
     const [isSpeaking, setIsSpeaking] = useState(false)
     const [isInitialized, setIsInitialized] = useState(false)
+    // EDIT 2: Initialized currentSystemPrompt with INITIAL_SYSTEM_PROMPT.
+    // This state variable will now hold the mutable system prompt.
+    const [currentSystemPrompt, setCurrentSystemPrompt] = useState<string>(INITIAL_SYSTEM_PROMPT)
     const scrollAreaRef = useRef<HTMLDivElement>(null)
     const audioRef = useRef<HTMLAudioElement>(null)
 
@@ -86,7 +118,7 @@ export default function Home() {
         setIsThinking(true)
 
         try {
-            // Send to chat API
+            // Send to chat API, including the currentSystemPrompt
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: {
@@ -97,23 +129,36 @@ export default function Home() {
                     conversationHistory: [...messages, userMessage].map(m => ({
                         role: m.role,
                         content: m.content
-                    }))
+                    })),
+                    systemPrompt: currentSystemPrompt // EDIT 3: Sending the dynamic currentSystemPrompt to the API.
                 }),
             })
 
             if (response.ok) {
-                const data = await response.json()
+                // EDIT 4: Destructuring the structured response from the API.
+                // We now expect 'response' (the actual AI message) and 'newSystemPrompt' (the update).
+                const { response: aiResponseContent, newSystemPrompt } = await response.json()
+
                 const assistantMessage: Message = {
                     id: (Date.now() + 1).toString(),
                     role: 'assistant',
-                    content: data.response,
+                    // EDIT 5: Using aiResponseContent for the message content.
+                    content: aiResponseContent,
                     timestamp: new Date(),
                 }
 
                 setMessages(prev => [...prev, assistantMessage])
 
-                // Auto-play the response
-                await playAudio(data.response)
+                // EDIT 6: Conditionally updating the system prompt.
+                // If the API returns a newSystemPrompt, update the state.
+                if (newSystemPrompt) {
+                    // This appends the new prompt fragment. You might adjust this logic
+                    // based on how you want the system prompt to evolve (e.g., replace, insert).
+                    setCurrentSystemPrompt(prevPrompt => `${prevPrompt}\n\n${newSystemPrompt}`)
+                }
+
+                // EDIT 7: Using aiResponseContent for audio playback.
+                await playAudio(aiResponseContent)
             } else {
                 throw new Error('Failed to get response')
             }
@@ -244,4 +289,5 @@ export default function Home() {
             </div>
         </main>
     )
+
 }

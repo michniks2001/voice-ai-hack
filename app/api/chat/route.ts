@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { zodTextFormat } from "openai/helpers/zod"
+import { z } from "zod"
+import OpenAI from "openai"
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 const SYSTEM_PROMPT = `You are Barnaby Goodbarrel, a cheerful but slightly gruff halfling innkeeper who runs 'The Rusty Flagon' tavern in the small town of Millbrook. You are currently behind the bar, polishing a mug with a well-worn cloth.
 
@@ -26,47 +31,61 @@ SPEAKING STYLE:
 
 Respond naturally and stay in character. You're having a casual conversation with a patron who just walked into your tavern.`
 
+const LLMResponseSchema = z.object({
+    aiResponse: z.string().describe("The conversational response."),
+    newSystemPrompt: z.string().nullable().optional().describe("An optional update or addition to the system prompt for the next turn."),
+})
+
 export async function POST(request: NextRequest) {
     try {
-        const { message, conversationHistory } = await request.json()
+        const { message, conversationHistory, systemPrompt } = await request.json()
 
         if (!message) {
             return NextResponse.json({ error: 'Message is required' }, { status: 400 })
         }
 
-        const messages = [
-            { role: 'system', content: SYSTEM_PROMPT },
-            ...conversationHistory.slice(-6), // Keep last 6 messages for context
-            { role: 'user', content: message }
+        const currentSystemPrompt = systemPrompt || SYSTEM_PROMPT
+
+        const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+            {
+                role: "system",
+                content: currentSystemPrompt
+            },
+            ...conversationHistory.slice(-6).map((msg: {
+                role: string,
+                content: string
+            }) => ({
+                role: msg.role === "user" ? "user" : "assistant",
+                content: msg.content
+            })),
+            {
+                role: "user",
+                content: message
+            }
         ]
 
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-                'Content-Type': 'application/json',
+        const parsedResponse = await openai.responses.parse({
+            model: "gpt-4o-2024-08-06",
+            input: messages,
+            text: {
+                format: zodTextFormat(LLMResponseSchema, "structured_output")
             },
-            body: JSON.stringify({
-                model: 'gpt-4.1',
-                messages: messages,
-                max_tokens: 200,
-                temperature: 0.8,
-            }),
+            temperature: 0.8,
+            max_output_tokens: 200,
         })
 
-        if (!response.ok) {
-            throw new Error(`OpenAI API error: ${response.status}`)
-        }
+        const { aiResponse, newSystemPrompt } = parsedResponse.output_parsed
 
-        const data = await response.json()
-        const aiResponse = data.choices[0].message.content
-
-        return NextResponse.json({ response: aiResponse })
+        return NextResponse.json({
+            aiResponse,
+            newSystemPrompt: newSystemPrompt
+        })
     } catch (error) {
-        console.error('Chat API error:', error)
+        console.error("Chat API Error:", error)
         return NextResponse.json(
-            { error: 'Failed to process chat message' },
+            { error: "Failed to process chat message" },
             { status: 500 }
         )
     }
 }
+
