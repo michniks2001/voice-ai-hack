@@ -1,103 +1,433 @@
-import Image from "next/image";
+'use client'
+
+import { useState, useRef, useEffect } from 'react'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Button } from '@/components/ui/button'
+import { VoiceInput } from '@/components/VoiceInput'
+import { ChatMessage } from '@/components/ChatMessage'
+import { LoadingIndicator } from '@/components/LoadingIndicator'
+import { Message } from '@/types'
+import { Volume2 } from 'lucide-react'
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    const [messages, setMessages] = useState<Message[]>([])
+    const [isThinking, setIsThinking] = useState(false)
+    const [isSpeaking, setIsSpeaking] = useState(false)
+    const [isInitialized, setIsInitialized] = useState(false)
+    const scrollAreaRef = useRef<HTMLDivElement>(null)
+    const audioRef = useRef<HTMLAudioElement>(null)
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    // Initialize with the welcome message only on the client side
+    useEffect(() => {
+        if (!isInitialized) {
+            const welcomeMessage: Message = {
+                id: '1',
+                role: 'assistant',
+                content: "Well now, welcome to The Rusty Flagon! I'm Barnaby, and this here's my tavern. Just polishin' up some mugs, I was. What brings you to Millbrook, friend? Looking for a room, or perhaps some of my famous mutton stew?",
+                timestamp: new Date(),
+            }
+            setMessages([welcomeMessage])
+            setIsInitialized(true)
+        }
+    }, [isInitialized])
+
+    useEffect(() => {
+        // Auto-scroll to bottom when new messages are added
+        if (scrollAreaRef.current) {
+            const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]')
+            if (scrollContainer) {
+                scrollContainer.scrollTop = scrollContainer.scrollHeight
+            }
+        }
+    }, [messages, isThinking])
+
+    const playAudio = async (text: string) => {
+        setIsSpeaking(true)
+        try {
+            const response = await fetch('/api/text-to-speech', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ text }),
+            })
+
+            if (response.ok) {
+                const audioBlob = await response.blob()
+                const audioUrl = URL.createObjectURL(audioBlob)
+
+                if (audioRef.current) {
+                    audioRef.current.src = audioUrl
+                    audioRef.current.onended = () => {
+                        setIsSpeaking(false)
+                        URL.revokeObjectURL(audioUrl)
+                    }
+                    await audioRef.current.play()
+                }
+            }
+        } catch (error) {
+            console.error('Error playing audio:', error)
+            setIsSpeaking(false)
+        }
+    }
+
+    const handleTranscription = async (text: string) => {
+        if (!text.trim()) return
+
+        // Add user message
+        const userMessage: Message = {
+            id: Date.now().toString(),
+            role: 'user',
+            content: text,
+            timestamp: new Date(),
+        }
+        setMessages(prev => [...prev, userMessage])
+        setIsThinking(true)
+
+        try {
+            // Send to chat API
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: text,
+                    conversationHistory: [...messages, userMessage].map(m => ({
+                        role: m.role,
+                        content: m.content
+                    }))
+                }),
+            })
+
+            if (response.ok) {
+                const data = await response.json()
+                const assistantMessage: Message = {
+                    id: (Date.now() + 1).toString(),
+                    role: 'assistant',
+                    content: data.response,
+                    timestamp: new Date(),
+                }
+
+                setMessages(prev => [...prev, assistantMessage])
+
+                // Auto-play the response
+                await playAudio(data.response)
+            } else {
+                throw new Error('Failed to get response')
+            }
+        } catch (error) {
+            console.error('Error sending message:', error)
+            const errorMessage: Message = {
+                id: (Date.now() + 1).toString(),
+                role: 'assistant',
+                content: "Ah, sorry friend, seems I'm havin' trouble hearin' ya properly. Mind tryin' again?",
+                timestamp: new Date(),
+            }
+            setMessages(prev => [...prev, errorMessage])
+        } finally {
+            setIsThinking(false)
+        }
+    }
+
+    const replayLastMessage = () => {
+        const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant')
+        if (lastAssistantMessage && !isSpeaking) {
+            playAudio(lastAssistantMessage.content)
+        }
+    }
+
+    // Show loading state while initializing to prevent hydration mismatch
+    if (!isInitialized) {
+        return (
+            <main className="min-h-screen bg-gradient-to-b from-amber-50 to-amber-100 p-4">
+                <div className="max-w-4xl mx-auto">
+                    <div className="text-center mb-6">
+                        <h1 className="text-4xl font-bold text-amber-900 mb-2">
+                            The Rusty Flagon Tavern
+                        </h1>
+                        <p className="text-amber-700">
+                            Loading...
+                        </p>
+                    </div>
+                </div>
+            </main>
+        )
+    }
+
+    return (
+        <main className="min-h-screen bg-gradient-to-b from-amber-50 to-amber-100 p-4">
+            <div className="max-w-4xl mx-auto">
+                {/* Header */}
+                <div className="text-center mb-6">
+                    <h1 className="text-4xl font-bold text-amber-900 mb-2">
+                        The Rusty Flagon Tavern
+                    </h1>
+                    <p className="text-amber-700">
+                        Chat with Barnaby the Halfling Innkeeper
+                    </p>
+                </div>
+
+                {/* Main Chat Interface */}
+                <Card className="mb-6">
+                    <CardHeader>
+                        <CardTitle className="flex items-center justify-between">
+                            <span>Conversation with Barnaby</span>
+                            <Button
+                                onClick={replayLastMessage}
+                                disabled={isSpeaking || messages.length === 0}
+                                variant="outline"
+                                size="sm"
+                            >
+                                <Volume2 className="h-4 w-4 mr-1" />
+                                {isSpeaking ? 'Playing...' : 'Replay'}
+                            </Button>
+                        </CardTitle>
+                        <CardDescription>
+                            Use the microphone button below to speak with Barnaby. He'll respond both in text and voice.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        {/* Chat Messages */}
+                        <ScrollArea className="h-96 w-full pr-4" ref={scrollAreaRef}>
+                            <div className="space-y-4">
+                                {messages.map((message) => (
+                                    <ChatMessage key={message.id} message={message} />
+                                ))}
+
+                                {isThinking && (
+                                    <LoadingIndicator message="Barnaby is thinking..." />
+                                )}
+                            </div>
+                        </ScrollArea>
+
+                        {/* Voice Input */}
+                        <div className="mt-6 pt-4 border-t">
+                            <VoiceInput
+                                onTranscription={handleTranscription}
+                                disabled={isThinking || isSpeaking}
+                            />
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Information Panel */}
+                <Card>
+                    <CardHeader>
+                        <CardTitle>About Barnaby & The Rusty Flagon</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="grid md:grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <h4 className="font-semibold text-amber-800 mb-2">The Innkeeper</h4>
+                                <p className="text-amber-700">
+                                    Barnaby Goodbarrel is a friendly halfling who has been running The Rusty Flagon
+                                    for over 20 years. He's known for his excellent ale, hearty mutton stew, and
+                                    knowledge of local happenings.
+                                </p>
+                            </div>
+                            <div>
+                                <h4 className="font-semibold text-amber-800 mb-2">The Tavern</h4>
+                                <p className="text-amber-700">
+                                    Located in the peaceful farming town of Millbrook, The Rusty Flagon serves
+                                    as a gathering place for locals and a safe haven for weary travelers.
+                                    Ask Barnaby about local rumors, the roads, or current events.
+                                </p>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Audio element for playing TTS */}
+                <audio ref={audioRef} style={{ display: 'none' }} />
+            </div>
+        </main>
+    )
+}
+
+const playAudio = async (text: string) => {
+    setIsSpeaking(true)
+    try {
+        const response = await fetch('/api/text-to-speech', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ text }),
+        })
+
+        if (response.ok) {
+            const audioBlob = await response.blob()
+            const audioUrl = URL.createObjectURL(audioBlob)
+
+            if (audioRef.current) {
+                audioRef.current.src = audioUrl
+                audioRef.current.onended = () => {
+                    setIsSpeaking(false)
+                    URL.revokeObjectURL(audioUrl)
+                }
+                await audioRef.current.play()
+            }
+        }
+    } catch (error) {
+        console.error('Error playing audio:', error)
+        setIsSpeaking(false)
+    }
+}
+
+const handleTranscription = async (text: string) => {
+    if (!text.trim()) return
+
+    // Add user message
+    const userMessage: Message = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: text,
+        timestamp: new Date(),
+    }
+    setMessages(prev => [...prev, userMessage])
+    setIsThinking(true)
+
+    try {
+        // Send to chat API
+        const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                message: text,
+                conversationHistory: [...messages, userMessage].map(m => ({
+                    role: m.role,
+                    content: m.content
+                }))
+            }),
+        })
+
+        if (response.ok) {
+            const data = await response.json()
+            const assistantMessage: Message = {
+                id: (Date.now() + 1).toString(),
+                role: 'assistant',
+                content: data.response,
+                timestamp: new Date(),
+            }
+
+            setMessages(prev => [...prev, assistantMessage])
+
+            // Auto-play the response
+            await playAudio(data.response)
+        } else {
+            throw new Error('Failed to get response')
+        }
+    } catch (error) {
+        console.error('Error sending message:', error)
+        const errorMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            role: 'assistant',
+            content: "Ah, sorry friend, seems I'm havin' trouble hearin' ya properly. Mind tryin' again?",
+            timestamp: new Date(),
+        }
+        setMessages(prev => [...prev, errorMessage])
+    } finally {
+        setIsThinking(false)
+    }
+}
+
+const replayLastMessage = () => {
+    const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant')
+    if (lastAssistantMessage && !isSpeaking) {
+        playAudio(lastAssistantMessage.content)
+    }
+}
+
+return (
+    <main className="min-h-screen bg-gradient-to-b from-amber-50 to-amber-100 p-4">
+        <div className="max-w-4xl mx-auto">
+            {/* Header */}
+            <div className="text-center mb-6">
+                <h1 className="text-4xl font-bold text-amber-900 mb-2">
+                    The Rusty Flagon Tavern
+                </h1>
+                <p className="text-amber-700">
+                    Chat with Barnaby the Halfling Innkeeper
+                </p>
+            </div>
+
+            {/* Main Chat Interface */}
+            <Card className="mb-6">
+                <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                        <span>Conversation with Barnaby</span>
+                        <Button
+                            onClick={replayLastMessage}
+                            disabled={isSpeaking || messages.length === 0}
+                            variant="outline"
+                            size="sm"
+                        >
+                            <Volume2 className="h-4 w-4 mr-1" />
+                            {isSpeaking ? 'Playing...' : 'Replay'}
+                        </Button>
+                    </CardTitle>
+                    <CardDescription>
+                        Use the microphone button below to speak with Barnaby. He'll respond both in text and voice.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {/* Chat Messages */}
+                    <ScrollArea className="h-96 w-full pr-4" ref={scrollAreaRef}>
+                        <div className="space-y-4">
+                            {messages.map((message) => (
+                                <ChatMessage key={message.id} message={message} />
+                            ))}
+
+                            {isThinking && (
+                                <LoadingIndicator message="Barnaby is thinking..." />
+                            )}
+                        </div>
+                    </ScrollArea>
+
+                    {/* Voice Input */}
+                    <div className="mt-6 pt-4 border-t">
+                        <VoiceInput
+                            onTranscription={handleTranscription}
+                            disabled={isThinking || isSpeaking}
+                        />
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Information Panel */}
+            <Card>
+                <CardHeader>
+                    <CardTitle>About Barnaby & The Rusty Flagon</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className="grid md:grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <h4 className="font-semibold text-amber-800 mb-2">The Innkeeper</h4>
+                            <p className="text-amber-700">
+                                Barnaby Goodbarrel is a friendly halfling who has been running The Rusty Flagon
+                                for over 20 years. He's known for his excellent ale, hearty mutton stew, and
+                                knowledge of local happenings.
+                            </p>
+                        </div>
+                        <div>
+                            <h4 className="font-semibold text-amber-800 mb-2">The Tavern</h4>
+                            <p className="text-amber-700">
+                                Located in the peaceful farming town of Millbrook, The Rusty Flagon serves
+                                as a gathering place for locals and a safe haven for weary travelers.
+                                Ask Barnaby about local rumors, the roads, or current events.
+                            </p>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Audio element for playing TTS */}
+            <audio ref={audioRef} style={{ display: 'none' }} />
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
+    </main>
+)
 }
